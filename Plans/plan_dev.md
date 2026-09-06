@@ -1,4 +1,4 @@
-# RV32I 单周期 CPU 开发计划（修订版）
+# RV32I 单周期 CPU 开发计划（修订版 v2）
 
 ## 项目概述
 
@@ -21,8 +21,9 @@
 | ISA | RV32I |
 | 微架构 | 单周期 |
 | 目标器件 | Xilinx Artix-7 XC7A35T |
-| 指令存储器 | 暂不单独实现 ROM，使用 LUTRAM 并初始化 `.hex` |
-| 数据存储器 | LUTRAM，异步读，支持字节使能 |
+| 指令存储器 | 不单独实现“物理 ROM”，用 LUTRAM 初始化 `.hex`（`rom.sv`） |
+| 数据存储器 | LUTRAM，异步读、同步写、支持字节使能（`ram.sv`） |
+| 顶层结构 | `top.sv` 平级例化 CPU、指令 ROM、数据 RAM |
 | 寄存器堆 | 不复位，x0 硬连线为 0 |
 | 非法指令校验 | 当前阶段不做，后续补充 |
 | 冗余逻辑清理 | 当前阶段不做，跑通后统一重构 |
@@ -31,29 +32,36 @@
 
 ## 目标与里程碑
 
-### M1：基础数据通路跑通
+### M1：基础数据通路跑通 ✅
 
-- 完成 ALU、RegFile、Decoder、ImmGen、Controller、PC。
-- 完成简单指令的逐模块仿真。
+- [x] 完成 ALU、RegFile、Decoder、ImmGen、Controller、PC。
+- [x] 完成简单指令的逐模块仿真。
 
-### M2：完整 CPU 可运行
+### M2：完整 CPU 可运行 ✅（手写程序已跑通）
 
-- 完成 `cpu.sv` 顶层例化。
-- 完成 LUTRAM 指令/数据存储器。
-- 可运行由 `riscv32-unknown-elf-gcc` 编译的小程序。
-- 覆盖 RV32I 基本指令：
-  - R-type
-  - I-type ALU
-  - Load / Store
-  - Branch
-  - JAL / JALR
-  - LUI / AUIPC
+- [x] 完成 `cpu.sv`：例化 Decoder、Controller、Datapath。
+- [x] 完成指令存储器 `rom.sv`：LUTRAM + `.hex` 初始化，异步只读。
+- [x] 完成数据存储器 `ram.sv`：LUTRAM，异步读、同步写、字节使能。
+- [x] 完成 `top.sv`：顶层平级例化 CPU、ROM、RAM。
+- [x] 完成 `sim/top_tb.sv` 并跑通第一个手写小程序。
+- [x] 验证基础指令通路：ADDI、ADD、SW、LW 等。
+- [ ] 运行由 `riscv32-unknown-elf-gcc` 编译的真实程序。
+
+M2 覆盖的指令类型（设计中已支持，仍需更完整测试）：
+
+- R-type
+- I-type ALU
+- Load / Store（LB/LH/LW/LBU/LHU/SB/SH/SW）
+- Branch（BEQ/BNE/BLT/BGE/BLTU/BGEU）
+- JAL / JALR
+- LUI / AUIPC
 
 ### M3：设计与代码整理
 
-- 清理冗余数据通路与控制逻辑。
-- 增加非法指令、保留编码等防御性处理。
-- 完善 testbench 与回归测试。
+- [ ] 清理冗余数据通路与控制逻辑。
+- [ ] 增加非法指令、保留编码等防御性处理。
+- [ ] 完善 testbench 与回归测试。
+- [ ] 综合 / 上板验证。
 
 ---
 
@@ -68,18 +76,25 @@
 - [x] `controller.sv`：控制信号生成
 - [x] `pc.sv`：PC 寄存器
 - [x] `imm_gen.sv`：I/S/B/U/J 立即数生成
-- [x] `datapath.sv`：主要数据通路（待顶层联调验证）
+- [x] `datapath.sv`：数据通路
+- [x] `rom.sv`：指令存储器（LUTRAM + `.hex` 初始化）
+- [x] `ram.sv`：数据存储器（异步读、同步写、字节使能）
+- [x] `cpu.sv`：CPU 核心例化与连线
+- [x] `top.sv`：顶层例化 CPU / ROM / RAM
+- [x] `sim/top_tb.sv`：顶层仿真 testbench
+- [x] 顶层行为仿真通过第一个小程序
+- [x] 整理出 `README.md` 与 `.gitignore`
 
-### 未完成
+### 未完成 / 待办
 
-- [ ] `rom.sv`：已决定暂不单独实现，改用 LUTRAM 初始化代替
-- [ ] `ram.sv`：数据存储器 LUTRAM 实现
-- [ ] `cpu.sv`：顶层例化与连线
-- [ ] `controller_tb.sv`：Controller 定向测试
-- [ ] `pc_tb.sv`
-- [ ] `ram_tb.sv`
-- [ ] `cpu_tb.sv`
 - [ ] 运行第一个 gcc 编译产物
+- [ ] `ram_tb.sv`：数据存储器定向测试
+- [ ] `cpu_tb.sv` / 更完整的 CPU 回归测试
+- [ ] Branch / JAL / JALR / LUI / AUIPC / Load-Store 全类型覆盖测试
+- [ ] `top_tb.sv` 增加自动断言（不只看波形）
+- [ ] 综合、实现、上板
+- [ ] 非法指令处理
+- [ ] 冗余逻辑清理
 
 ---
 
@@ -96,3 +111,42 @@ XC7A35T 的 LUTRAM 官方上限约为 **400 Kb（≈ 50 KB）**。
 指令 LUTRAM：8 KB（约 2048 条指令）
 数据 LUTRAM：8 KB
 合计：16 KB（约 128 Kb）
+```
+
+### D2：顶层采用“CPU 与存储器平级例化”
+
+`top.sv` 中平级例化：
+
+```text
+top.sv
+├── cpu.sv（纯核心，不含存储器）
+├── rom.sv（指令存储器）
+└── ram.sv（数据存储器）
+```
+
+优点：
+
+- 各模块可单独测试；
+- 波形调试时在 top 层直接看到 `pc/instr/dmem_*`；
+- 以后更换存储器类型、增加外设/总线时不需要改 CPU 核心。
+
+### D3：ROM 用“只读 LUTRAM + 初始化”实现
+
+FPGA 中没有物理“只读 ROM”，采用上电/仿真初始化 + 无写端口的 LUTRAM 充当 ROM，
+符合 FPGA 实际做法，也便于仿真加载 `.hex`。
+
+### D4：数据 RAM 采用“异步读 + 同步写”
+
+- 异步读：保证单周期内 Load 能拿到数据；
+- 同步写：写使能 + 时钟沿写入，避免毛刺；
+- 字节使能：配合 SB/SH/SW 部分写入。
+
+---
+
+## 下一步建议
+
+1. 用 gcc 编译一个稍大的 C 程序并生成 `.hex`，验证真实编译产物；
+2. 补 `ram_tb.sv`、`cpu_tb.sv` 与自动断言；
+3. 覆盖 Branch/JAL/JALR/LUI/AUIPC/Load-Store 全指令；
+4. 跑综合，观察 LUT/存储资源占用；
+5. 上板前补约束文件，并规划简单的 LED / UART 结果展示。
